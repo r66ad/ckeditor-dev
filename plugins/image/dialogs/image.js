@@ -411,6 +411,8 @@
 						} else {
 							editor.insertElement( this.imageElement );
 						}
+						editor.getSelection().selectElement( this.imageElement );
+						editor.execCommand( 'quelle' );
 					}
 					// Image already exists.
 					else {
