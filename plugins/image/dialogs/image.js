@@ -8,8 +8,10 @@
 			// Load image preview.
 			var IMAGE = 1,
 				LINK = 2,
+				QUELLE = 3,
 				PREVIEW = 4,
 				CLEANUP = 8,
+				maxWidth=600,
 				regexGetSize = /^\s*(\d+)((px)|\%)?\s*$/i,
 				regexGetSizeOrEmpty = /(^\s*(\d+)((px)|\%)?\s*$)|^$/i,
 				pxLengthRegex = /^\d+px$/;
@@ -276,9 +278,10 @@
 					var editor = this.getParentEditor(),
 						sel = editor.getSelection(),
 						element = sel && sel.getSelectedElement(),
+						quelle = element && editor.elementPath( element ).contains( 'div', 1 ),
 						link = element && editor.elementPath( element ).contains( 'a', 1 ),
 						loader = CKEDITOR.document.getById( imagePreviewLoaderId );
-
+//alert(quelle.getChildren().getItem(2).getText());
 					// Hide loader.
 					if ( loader )
 						loader.setStyle( 'display', 'none' );
@@ -292,9 +295,33 @@
 					this.originalElement.setAttribute( 'alt', '' );
 					this.originalElement.setCustomData( 'isReady', 'false' );
 
+					if ( quelle ) {
+						this.quelleElement = quelle;
+						this.linkEditMode = true;
+						// Look for Image element.
+						if (link)
+							var linkChildren = link.getChildren();
+						else if(quelle)
+							var linkChildren = quelle.getChildren();
+						if ( linkChildren.count() == 1 ) {
+							var childTagName = linkChildren.getItem( 0 ).getName();
+							if ( childTagName == 'img' || childTagName == 'input' ) {
+								this.imageElement = linkChildren.getItem( 0 );
+								if ( this.imageElement.getName() == 'img' )
+									this.imageEditMode = 'img';
+								else if ( this.imageElement.getName() == 'input' )
+									this.imageEditMode = 'input';
+							}
+						}
+						// Fill out all fields.
+						if ( dialogType == 'image' )
+							this.setupContent( QUELLE, quelle );
+					}
+
 					if ( link ) {
 						this.linkElement = link;
 						this.linkEditMode = true;
+						this.addLink = true;
 
 						// Look for Image element.
 						var linkChildren = link.getChildren();
@@ -391,38 +418,63 @@
 					if ( !this.linkEditMode )
 						this.linkElement = editor.document.createElement( 'a' );
 
+					this.quelleElement =  editor.document.createElement( 'div' );
+					this.smallElement =  editor.document.createElement( 'small' );
+					this.smallElement.setText("Quelle: ");
+					this.brElement =  editor.document.createElement( 'br' );
 					// Set attributes.
 					this.commitContent( IMAGE, this.imageElement );
 					this.commitContent( LINK, this.linkElement );
-
+					this.commitContent( QUELLE, this.smallElement );
 					// Remove empty style attribute.
 					if ( !this.imageElement.getAttribute( 'style' ) )
 						this.imageElement.removeAttribute( 'style' );
-
 					// Insert a new Image.
 					if ( !this.imageEditMode ) {
 						if ( this.addLink ) {
 							//Insert a new Link.
 							if ( !this.linkEditMode ) {
-								editor.insertElement( this.linkElement );
+								editor.insertElement( this.quelleElement );
 								this.linkElement.append( this.imageElement, false );
+								this.quelleElement.append( this.linkElement, false );
+								this.quelleElement.append( this.brElement, false);
+								this.quelleElement.append( this.smallElement, false );
 							} else //Link already exists, image not.
 							editor.insertElement( this.imageElement );
 						} else {
-							editor.insertElement( this.imageElement );
+							editor.insertElement( this.quelleElement );
+							this.quelleElement.append( this.imageElement, false );
+							this.quelleElement.append( this.brElement, false);
+							this.quelleElement.append( this.smallElement, false );
+
 						}
-					}
-					// Image already exists.
+					}// Image already exists.
 					else {
+						var sel = editor.getSelection(),
+							element = sel && sel.getSelectedElement();
 						// Add a new link element.
 						if ( !this.linkEditMode && this.addLink ) {
-							editor.insertElement( this.linkElement );
-							this.imageElement.appendTo( this.linkElement );
+							if(this.linkElement){
+								editor.insertElement( this.linkElement );
+								this.imageElement.appendTo( this.linkElement );
+							}
 						}
 						// Remove Link, Image exists.
-						else if ( this.linkEditMode && !this.addLink ) {
-							editor.getSelection().selectElement( this.linkElement );
-							editor.insertElement( this.imageElement );
+						else if ( this.linkEditMode && !this.addLink) {
+							if(this.linkElement){
+								editor.getSelection().selectElement( this.linkElement );
+								editor.insertElement( this.imageElement );
+							}
+						}
+						if (element.getParent().getName()=='a') {
+							if(element.getParent().getNext().getNext().getName()=="small"){
+								element.getParent().getNext().getNext().setText(this.smallElement.getText());
+							}
+						}
+						if (element.getParent().getName()=='div') {
+							if (element.getNext().getNext().getName()=="small") {
+								element.getNext().getNext().setText(this.smallElement.getText());
+							}
 						}
 					}
 				},
@@ -567,6 +619,31 @@
 
 						}
 					},
+                    {
+                        type: 'text',
+                        id: 'quelle',
+						label: '<strong>Quelle</strong>',
+                        validate: CKEDITOR.dialog.validate.notEmpty( "Quelle cannot be empty." ),
+						onChange: function() {
+							updatePreview( this.getDialog() );
+						},
+						setup: function( type, element ) {
+							if ( type == QUELLE ) {
+								//alert(element.getName()+" q: "+q+" - "+JSON.stringify(element, null, 4));
+								q=element.getChildren().getItem(2).getText()
+								if (!q) q  = "";
+								this.setValue( q );
+							}
+						},
+						commit: function( type, element ) {
+							if ( type == QUELLE ) {
+								if (this.getValue().indexOf("Quelle: ") > -1)
+									element.setText(this.getValue()); 
+								else
+									element.setText("Quelle: "+this.getValue()); //div->img->small
+							}
+						}
+                    },
 					{
 						type: 'hbox',
 						children: [ {
@@ -593,6 +670,11 @@
 												isValid = !!( aMatch && parseInt( aMatch[ 1 ], 10 ) !== 0 );
 											if ( !isValid )
 												alert( editor.lang.common.invalidWidth ); // jshint ignore:line
+											if ( parseInt( aMatch[ 1 ], 10 ) > maxWidth ){
+												isValid=false;
+												alert( "Breite übersteigt "+maxWidth+"px." ); // jshint ignore:line
+											}
+											
 											return isValid;
 										},
 										setup: setupDimension,
@@ -978,6 +1060,8 @@
 
 									if ( this.getValue() || !editor.config.image_removeLinkByEmptyURL )
 										this.getDialog().addLink = true;
+									else
+										this.getDialog().addLink = false;
 								}
 							}
 						}
